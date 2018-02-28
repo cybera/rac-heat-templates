@@ -1,0 +1,108 @@
+description: Template to install RStudio
+heat_template_version: 2017-02-24
+
+parameters:
+  rstudio_password:
+    type: string
+    label: RStudio Password
+    description: Password for RStudio.
+    hidden: true
+
+  key_name:
+    type: string
+    label: Key name
+    description: Name of the key-pair to be used to access the instance via SSH.
+    constraints:
+      - custom_constraint: nova.keypair
+  flavor:
+    type: string
+    label: Flavor
+    description: The type of instance (flavor) to be used.
+    default: m1.small
+    constraints:
+      - custom_constraint: nova.flavor
+
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Security Group for RStudio
+      name: security_group
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          protocol: icmp
+          remote_ip_prefix: ::/0
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      image: "Ubuntu 16.04"
+      security_groups:
+        - { get_resource: security_group }
+      networks:
+        - network: default
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
+              /usr/local/bin/enableAutoUpdate
+            fi
+            mkdir /opt/rstudio
+            useradd -m rstudio -d /opt/rstudio
+            echo rstudio:$PASSWORD | /usr/sbin/chpasswd
+            chown -R rstudio: /opt/rstudio
+            apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E084DAB9
+            echo "deb http://muug.ca/mirror/cran/bin/linux/ubuntu xenial/" > /etc/apt/sources.list.d/r.list
+            apt-get update
+            apt-get install -y r-base gdebi-core
+            wget https://download2.rstudio.org/rstudio-server-1.0.153-amd64.deb
+            /usr/bin/gdebi -n rstudio-server-1.0.153-amd64.deb
+            echo "www-address=::" | tee -a /etc/rstudio/rserver.conf
+            echo "www-port=80" | tee -a /etc/rstudio/rserver.conf
+            service rstudio-server restart
+          params:
+            $PASSWORD: { get_param: rstudio_password }
