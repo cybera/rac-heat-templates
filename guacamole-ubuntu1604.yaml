@@ -1,0 +1,193 @@
+description: Template to install Guacamole
+# ocata version, 2017-02-24
+# pike version, 2017-09-01
+heat_template_version: 2017-02-24
+
+# input parameters that have to be provided when instantiating template
+# optional and can be omitted when no input is required
+# customize each deployment (e.g. setting custom user names or passwords)
+# or binding to environment-specifics like certain images
+# https://docs.openstack.org/heat/pike/template_guide/hot_spec.html#parameters-section
+parameters:
+  guac_password:
+    type: string
+    label: Create password for Guacamole
+    description: Create a new password for Guacamole.
+    hidden: true
+
+  guac_username:
+    type: string
+    label: Create username for Guacamole
+    description: Create a new username for Guacamole.
+
+  key_name:
+    type: string
+    label: Key name
+    description: Name of the key-pair to be used to access the instance via SSH
+    constraints:
+      - custom_constraint: nova.keypair
+
+  flavor:
+    type: string
+    label: Flavor
+    description: The type of instance (flavor) to be used.
+    default: m1.small
+    constraints:
+      - custom_constraint: nova.flavor
+
+# declaration of single resources.
+# at least one resource should be defined,
+# or the template wouldn't really do anything when being instantiated
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Security Group for Guacamole
+      name: guac_security_group
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 8080
+          port_range_max: 8080
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          protocol: icmp
+          remote_ip_prefix: ::/0
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      image: "Ubuntu 16.04"
+      security_groups:
+        - { get_resource: security_group }
+      networks:
+        - network: default
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            write_files:
+              - content: |
+                  #!/bin/bash
+                  sleep 60
+                  guac_version="0.9.13-incubating"
+                  tcat_version=7
+                  guac_pw="%PASSWORD%"
+                  if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
+                  /usr/local/bin/enableAutoUpdate
+                  fi
+                  apt-get update
+                  debconf-set-selections <<< "mysql-server mysql-server/root_password password ${guac_pw}"
+                  debconf-set-selections <<< "mysql-server mysql-server/root_password_again password ${guac_pw}"
+                  apt-get -y -q install tomcat7
+                  iptables -I INPUT 1 -p tcp -m tcp --dport 8080 -j ACCEPT -m comment --comment "by heat, Tomcat"
+                  apt-get -y install build-essential libcairo2-dev libjpeg-turbo8-dev libpng12-dev libossp-uuid-dev libavcodec-dev libavutil-dev \
+                    libswscale-dev libfreerdp-dev libpango1.0-dev libssh2-1-dev libtelnet-dev libvncserver-dev libpulse-dev libssl-dev \
+                    libvorbis-dev libwebp-dev mysql-server mysql-client mysql-common mysql-utilities freerdp ghostscript jq wget curl
+                  wget http://sourceforge.net/projects/guacamole/files/current/binary/guacamole-${guac_version}.war
+                  wget http://sourceforge.net/projects/guacamole/files/current/source/guacamole-server-${guac_version}.tar.gz
+                  wget https://downloads.sourceforge.net/project/guacamole/current/extensions/guacamole-auth-jdbc-${guac_version}.tar.gz
+                  tar -xzf guacamole-server-${guac_version}.tar.gz
+                  mkdir /etc/guacamole
+                  mkdir /etc/guacamole/extensions
+                  mkdir /etc/guacamole/lib
+                  tar -xzf guacamole-auth-jdbc-${guac_version}.tar.gz
+                  wget https://dev.mysql.com/get/Downloads/Connector-J/mysql-connector-java-5.1.41.tar.gz
+                  tar -xzf mysql-connector-java-5.1.41.tar.gz
+                  cp mysql-connector-java-5.1.41/mysql-connector-java-5.1.41-bin.jar /etc/guacamole/lib/
+                  cp guacamole-auth-jdbc-${guac_version}/mysql/guacamole-auth-jdbc-mysql-${guac_version}.jar /etc/guacamole/extensions/
+                  pushd guacamole-server-${guac_version}/
+                  ./configure --with-init-dir=/etc/init.d
+                  make
+                  make install
+                  update-rc.d guacd defaults
+                  ldconfig
+                  popd
+                  echo "mysql-hostname: localhost" >> /etc/guacamole/guacamole.properties
+                  echo "mysql-port: 3306" >> /etc/guacamole/guacamole.properties
+                  echo "mysql-database: guacamole_db" >> /etc/guacamole/guacamole.properties
+                  echo "mysql-username: guacamole_user" >> /etc/guacamole/guacamole.properties
+                  echo "mysql-password: %PASSWORD%" >> /etc/guacamole/guacamole.properties
+                  useradd -d /etc/guacamole -p "$(openssl passwd -1 %PASSWORD%)" %USERNAME%
+                  echo "guac ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/guac
+                  sed -i -e 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+                  service sshd restart
+                  MYCNF="[client]
+                  user=root
+                  host=localhost
+                  password='%PASSWORD%'
+                  socket=/var/run/mysqld/mysqld.sock
+                  "
+                  echo "$MYCNF" | tee /root/.my.cnf
+                  SQLCODE="
+                  create database guacamole_db;
+                  create user 'guacamole_user'@'localhost' identified by '%PASSWORD%';
+                  GRANT SELECT,INSERT,UPDATE,DELETE ON guacamole_db.* TO 'guacamole_user'@'localhost';
+                  flush privileges;"
+                  echo "$SQLCODE" | mysql --defaults-extra-file=/root/.my.cnf
+                  cat guacamole-auth-jdbc-${guac_version}/mysql/schema/*.sql | mysql --defaults-extra-file=/root/.my.cnf guacamole_db
+                  SQLCODE="
+                  use guacamole_db;
+                  SET @salt = UNHEX(SHA2(UUID(), 256));
+                  update guacamole_user set username = '%USERNAME%', password_hash = UNHEX(SHA2(CONCAT('%PASSWORD%', HEX(@salt)), 256)), password_salt = @salt where user_id = 1;"
+                  echo "$SQLCODE" | mysql --defaults-extra-file=/root/.my.cnf
+                  chmod -R go+rw /etc/guacamole
+                  mkdir /usr/share/tomcat${tcat_version}/.guacamole
+                  ln -s /etc/guacamole/guacamole.properties /usr/share/tomcat${tcat_version}/.guacamole
+                  cp guacamole-${guac_version}.war /var/lib/tomcat${tcat_version}/webapps/guacamole.war
+                  service guacd start
+                  echo "GUACAMOLE_HOME=/etc/guacamole" >> /etc/default/tomcat${tcat_version}
+                  service tomcat${tcat_version} restart
+
+                path: /tmp/bootstrap.sh
+                permissions: '0700'
+            runcmd:
+              - /tmp/bootstrap.sh > /var/log/bootstrap.log 2> /var/log/bootstrap.err
+          params:
+            "%USERNAME%": { get_param: guac_username }
+            "%PASSWORD%": { get_param: guac_password }
