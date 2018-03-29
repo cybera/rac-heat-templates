@@ -158,7 +158,7 @@ resources:
                   [CLIENT]
                   user=root
                   host=localhost
-                  password='${ether_pw}'
+                  password=%PASSWORD%
                   socket=/var/run/mysqld/mysqld.sock
                   EOT
 
