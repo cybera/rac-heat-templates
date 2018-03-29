@@ -114,7 +114,6 @@ resources:
             write_files:
               - content: |
                   #!/bin/bash
-                  sleep 60
                   guac_version="0.9.13-incubating"
                   tcat_version=7
                   guac_pw="%PASSWORD%"
