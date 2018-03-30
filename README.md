@@ -1,5 +1,6 @@
 # rac-heat-templates
 Heat Templates for RAC
+
 https://docs.openstack.org/heat/latest/
 
 ## Guacamole
