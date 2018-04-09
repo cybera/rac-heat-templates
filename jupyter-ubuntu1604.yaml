@@ -1,0 +1,117 @@
+description: Template to install Jupyter Notebook
+# ocata version, 2017-02-24
+# pike version, 2017-09-01
+heat_template_version: 2017-02-24
+
+# input parameters that have to be provided when instantiating template
+# optional and can be omitted when no input is required
+# customize each deployment (e.g. setting custom user names or passwords)
+# or binding to environment-specifics like certain images
+# https://docs.openstack.org/heat/pike/template_guide/hot_spec.html#parameters-section
+parameters:
+  jupyter_password:
+    type: string
+    label: Create password for Jupyter Notebook
+    description: Create a new password for Jupyter Notebook.
+    hidden: true
+
+  key_name:
+    type: string
+    label: Key name
+    description: Name of the key-pair to be used to access the instance via SSH
+    constraints:
+      - custom_constraint: nova.keypair
+
+  flavor:
+    type: string
+    label: Flavor
+    description: The type of instance (flavor) to be used.
+    default: m1.small
+    constraints:
+      - custom_constraint: nova.flavor
+
+# declaration of single resources.
+# at least one resource should be defined,
+# or the template wouldn't really do anything when being instantiated
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Security Group for Jupyter Notebook
+      name: jupyter_security_group
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 8888
+          port_range_max: 8888
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 8888
+          port_range_max: 8888
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          protocol: icmp
+          remote_ip_prefix: ::/0
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      image: "Ubuntu 16.04"
+      security_groups:
+        - { get_resource: security_group }
+      networks:
+        - network: default
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            write_files:
+              - content: |
+                  #!/bin/bash
+                  if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
+                  /usr/local/bin/enableAutoUpdate
+                  fi
+                  apt-get update
+                  wget https://repo.continuum.io/archive/Anaconda3-5.1.0-Linux-x86_64.sh
+                  bash Anaconda3-5.1.0-Linux-x86_64.sh -b -f -p /anaconda3
+                  rm Anaconda3-5.1.0-Linux-x86_64.sh
+                  echo 'export PATH="/anaconda3/bin:$PATH"' >> ~/.bashrc
+                  source ~/.bashrc
+                  conda update conda -y
+                  conda install -f jupyter -y
+                  /anaconda3/bin/jupyter-notebook --generate-config
+                  ntbk_sha="$(/anaconda3/bin/python -c "import IPython;print(IPython.lib.passwd('%PASSWORD%'))")"
+                  echo "c.NotebookApp.password = u'${ntbk_sha}'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.ip = '*'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.open_browser = False" >> ~/.jupyter/jupyter_notebook_config.py
+                  /anaconda3/bin/jupyter-notebook --allow-root &
+
+                path: /tmp/bootstrap.sh
+                permissions: '0700'
+            runcmd:
+              - /tmp/bootstrap.sh > /var/log/bootstrap.log 2> /var/log/bootstrap.err
+          params:
+            "%PASSWORD%": { get_param: jupyter_password }
