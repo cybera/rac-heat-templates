@@ -30,6 +30,13 @@ parameters:
     constraints:
       - custom_constraint: nova.flavor
 
+  volume:
+    type: string
+    label: Volume
+    description: A volume to attach. You must create this first.
+    constraints:
+      - custom_constraint: cinder.volume
+
 # declaration of single resources.
 # at least one resource should be defined,
 # or the template wouldn't really do anything when being instantiated
@@ -90,10 +97,29 @@ resources:
             #cloud-config
             write_files:
               - content: |
-                  #!/bin/bash
+                  #!/bin/bash -v
+                  sleep 60
                   if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
                   /usr/local/bin/enableAutoUpdate
                   fi
+                  mkdir /opt/jupyter
+                  vol_id="%VOLUME_ID%"
+                  vol="/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_$(echo ${vol_id} | cut -c -20)"
+                  if [[ -e "${vol}" ]]; then
+                    fs=$(blkid -o value -s TYPE $vol)
+                    if [[ $fs != "ext4" ]]; then
+                      mkfs -t ext4 $vol
+                    fi
+                    mount $vol /opt/jupyter
+
+                    dev_path=$(readlink -f $vol)
+                    uuid=$(lsblk -no uuid $dev_path)
+                    echo "UUID=${uuid} /opt/jupyter ext4 defaults 0 1 " | tee --append  /etc/fstab
+                  fi
+                  useradd -m ubuntu -d /opt/jupyter
+                  chown -R ubuntu: /opt/jupyter
+                  mkdir /opt/jupyter/notebooks
+
                   apt-get update
                   wget https://repo.continuum.io/archive/Anaconda3-5.1.0-Linux-x86_64.sh
                   bash Anaconda3-5.1.0-Linux-x86_64.sh -b -f -p /anaconda3
@@ -107,7 +133,9 @@ resources:
                   echo "c.NotebookApp.password = u'${ntbk_sha}'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.ip = '*'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.open_browser = False" >> ~/.jupyter/jupyter_notebook_config.py
-                  /anaconda3/bin/jupyter-notebook --allow-root &
+                  cd /opt/jupyter/notebooks
+                  /anaconda3/bin/jupyter-notebook --allow-root --debug > /var/log/jupyter.log 2>&1 &
+
 
                 path: /tmp/bootstrap.sh
                 permissions: '0700'
@@ -115,3 +143,10 @@ resources:
               - /tmp/bootstrap.sh > /var/log/bootstrap.log 2> /var/log/bootstrap.err
           params:
             "%PASSWORD%": { get_param: jupyter_password }
+            "%VOLUME_ID%": { get_param: volume }
+
+  volume_attach:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      volume_id: { get_param: volume }
+      instance_uuid: { get_resource: instance }

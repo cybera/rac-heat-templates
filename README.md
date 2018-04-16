@@ -15,6 +15,7 @@ Access web app at http://<span></span>[ipv6]:8080/guacamole
 ## Jupyter Notebook
 * Manually associate floating ipv4 to instance.
 * Access webapp at http://<span></span>ipv4:8888
+* Log process output in /var/log/jupyter.log
 ### References
 * https://github.com/squillace/staging/blob/master/articles/virtual-machines/virtual-machines-linux-jupyter-notebook.md
 * [Jupyter config settings](http://jupyter-notebook.readthedocs.io/en/latest/public_server.html)
