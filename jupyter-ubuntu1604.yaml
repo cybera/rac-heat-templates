@@ -15,6 +15,11 @@ parameters:
     description: Create a new password for Jupyter Notebook.
     hidden: true
 
+  email:
+    type: string
+    label: Administrator email
+    description: Enter an email for ssl cert alerts.
+
   key_name:
     type: string
     label: Key name
@@ -73,6 +78,18 @@ resources:
           remote_ip_prefix: ::/0
         - direction: ingress
           ethertype: IPv4
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
           protocol: icmp
           remote_ip_prefix: 0.0.0.0/0
         - direction: ingress
@@ -105,6 +122,8 @@ resources:
                   mkdir /opt/jupyter
                   vol_id="%VOLUME_ID%"
                   vol="/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_$(echo ${vol_id} | cut -c -20)"
+                  dns_name=$(host $(ip -6 addr show ens3 | awk '/2605/ { print $2 }' \
+                  | awk 'BEGIN { FS="/"; } { print $1 }') | awk '{ print substr($NF, 1, length($NF)-1) }')
                   if [[ -e "${vol}" ]]; then
                     fs=$(blkid -o value -s TYPE $vol)
                     if [[ $fs != "ext4" ]]; then
@@ -116,11 +135,15 @@ resources:
                     uuid=$(lsblk -no uuid $dev_path)
                     echo "UUID=${uuid} /opt/jupyter ext4 defaults 0 1 " | tee --append  /etc/fstab
                   fi
-                  useradd -m ubuntu -d /opt/jupyter
-                  chown -R ubuntu: /opt/jupyter
                   mkdir /opt/jupyter/notebooks
 
                   apt-get update
+                  apt-get install software-properties-common
+                  add-apt-repository ppa:certbot/certbot -y
+                  apt-get update
+                  apt-get install certbot -y
+                  certbot certonly --standalone -n -m %EMAIL% --agree-tos -d $dns_name
+
                   wget https://repo.continuum.io/archive/Anaconda3-5.1.0-Linux-x86_64.sh
                   bash Anaconda3-5.1.0-Linux-x86_64.sh -b -f -p /anaconda3
                   rm Anaconda3-5.1.0-Linux-x86_64.sh
@@ -133,9 +156,10 @@ resources:
                   echo "c.NotebookApp.password = u'${ntbk_sha}'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.ip = '*'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.open_browser = False" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.certfile = '/etc/letsencrypt/live/${dns_name}/fullchain.pem'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.keyfile = '/etc/letsencrypt/live/${dns_name}/privkey.pem'" >> ~/.jupyter/jupyter_notebook_config.py
                   cd /opt/jupyter/notebooks
                   /anaconda3/bin/jupyter-notebook --allow-root --debug > /var/log/jupyter.log 2>&1 &
-
 
                 path: /tmp/bootstrap.sh
                 permissions: '0700'
@@ -144,6 +168,7 @@ resources:
           params:
             "%PASSWORD%": { get_param: jupyter_password }
             "%VOLUME_ID%": { get_param: volume }
+            "%EMAIL%": { get_param: email }
 
   volume_attach:
     type: OS::Cinder::VolumeAttachment
