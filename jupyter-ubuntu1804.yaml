@@ -1,0 +1,195 @@
+description: Template to install Jupyter Notebook
+# ocata version, 2017-02-24
+# pike version, 2017-09-01
+heat_template_version: 2017-02-24
+
+# input parameters that have to be provided when instantiating template
+# optional and can be omitted when no input is required
+# customize each deployment (e.g. setting custom user names or passwords)
+# or binding to environment-specifics like certain images
+# https://docs.openstack.org/heat/pike/template_guide/hot_spec.html#parameters-section
+parameters:
+  jupyter_password:
+    type: string
+    label: Create password for Jupyter Notebook
+    description: Create a new password for Jupyter Notebook.
+    hidden: true
+
+  email:
+    type: string
+    label: Administrator email
+    description: Enter an email for ssl cert alerts.
+
+  key_name:
+    type: string
+    label: Key name
+    description: Name of the key-pair to be used to access the instance via SSH
+    constraints:
+      - custom_constraint: nova.keypair
+
+  flavor:
+    type: string
+    label: Flavor
+    description: The type of instance (flavor) to be used.
+    default: m1.small
+    constraints:
+      - custom_constraint: nova.flavor
+
+  volume:
+    type: string
+    label: Volume
+    description: A volume to attach. You must create this first.
+    constraints:
+      - custom_constraint: cinder.volume
+
+# declaration of single resources.
+# at least one resource should be defined,
+# or the template wouldn't really do anything when being instantiated
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Security Group for Jupyter Notebook
+      name: jupyter_security_group
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 22
+          port_range_max: 22
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 443
+          port_range_max: 443
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          port_range_min: 80
+          port_range_max: 80
+          protocol: tcp
+          remote_ip_prefix: ::/0
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: ingress
+          ethertype: IPv6
+          protocol: icmp
+          remote_ip_prefix: ::/0
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      image: "Ubuntu 18.04"
+      security_groups:
+        - { get_resource: security_group }
+      networks:
+        - network: default
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            write_files:
+              - content: |
+                  #!/bin/bash -v
+                  sleep 60
+                  if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
+                  /usr/local/bin/enableAutoUpdate
+                  fi
+                  mkdir /opt/jupyter
+                  vol_id="%VOLUME_ID%"
+                  vol="/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_$(echo ${vol_id} | cut -c -20)"
+                  dns_name=$(host $(ip -6 addr show ens3 | awk '/2605/ { print $2 }' \
+                  | awk 'BEGIN { FS="/"; } { print $1 }') | awk '{ print substr($NF, 1, length($NF)-1) }')
+                  if [[ -e "${vol}" ]]; then
+                    fs=$(blkid -o value -s TYPE $vol)
+                    if [[ $fs != "ext4" ]]; then
+                      mkfs -t ext4 $vol
+                    fi
+                    mount $vol /opt/jupyter
+
+                    dev_path=$(readlink -f $vol)
+                    uuid=$(lsblk -no uuid $dev_path)
+                    echo "UUID=${uuid} /opt/jupyter ext4 defaults 0 1 " | tee --append  /etc/fstab
+                  fi
+                  mkdir /opt/jupyter/notebooks
+
+                  apt-get update
+                  apt-get install software-properties-common
+                  add-apt-repository ppa:certbot/certbot -y
+                  apt-get update
+                  apt-get install certbot -y
+                  certbot certonly --standalone -n -m %EMAIL% --agree-tos -d $dns_name
+
+                  wget https://repo.continuum.io/archive/Anaconda2-2019.07-Linux-x86_64.sh
+                  bash Anaconda2-2019.07-Linux-x86_64.sh -b -f -p /anaconda3
+                  rm Anaconda2-2019.07-Linux-x86_64.sh
+                  echo 'export PATH="/anaconda3/bin:$PATH"' >> ~/.bashrc
+                  source ~/.bashrc
+                  conda update conda -y
+                  conda install -f jupyter -y
+                  /anaconda3/bin/jupyter-notebook --generate-config
+                  ntbk_sha="$(/anaconda3/bin/python -c "import IPython;print(IPython.lib.passwd('%PASSWORD%'))")"
+                  echo "c.NotebookApp.password = u'${ntbk_sha}'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.ip = '::'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.open_browser = False" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.certfile = '/etc/letsencrypt/live/${dns_name}/fullchain.pem'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.keyfile = '/etc/letsencrypt/live/${dns_name}/privkey.pem'" >> ~/.jupyter/jupyter_notebook_config.py
+
+                  cat > /etc/systemd/system/jupyter.service <<EOF
+                  [Unit]
+                  Description=Jupyter
+
+                  [Service]
+                  Type=simple
+                  PIDFile=/var/run/jupyter.pid
+                  ExecStart=/anaconda3/bin/jupyter-notebook --port 443 --allow-root --debug
+                  WorkingDirectory=/opt/jupyter/notebooks
+                  User=root
+                  Group=root
+
+                  [Install]
+                  WantedBy=multi-user.target%
+                  EOF
+
+                  systemctl daemon-reload
+                  systemctl enable jupyter
+                  systemctl start jupyter
+
+                path: /tmp/bootstrap.sh
+                permissions: '0700'
+            runcmd:
+              - /tmp/bootstrap.sh > /var/log/bootstrap.log 2>&1
+          params:
+            "%PASSWORD%": { get_param: jupyter_password }
+            "%VOLUME_ID%": { get_param: volume }
+            "%EMAIL%": { get_param: email }
+
+  volume_attach:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      volume_id: { get_param: volume }
+      instance_uuid: { get_resource: instance }
