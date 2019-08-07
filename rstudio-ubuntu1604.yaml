@@ -121,7 +121,7 @@ resources:
                   useradd -m rstudio -d /opt/rstudio
                   echo rstudio:%PASSWORD% | /usr/sbin/chpasswd
                   chown -R rstudio: /opt/rstudio
-                  apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E084DAB9
+                  apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 51716619E084DAB9
                   echo "deb http://muug.ca/mirror/cran/bin/linux/ubuntu xenial/" > /etc/apt/sources.list.d/r.list
                   apt-get update
                   apt-get install -y r-base gdebi-core
