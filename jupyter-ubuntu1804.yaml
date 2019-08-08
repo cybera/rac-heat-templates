@@ -138,15 +138,15 @@ resources:
                   mkdir /opt/jupyter/notebooks
 
                   apt-get update
-                  apt-get install software-properties-common
+                  apt-get install -y software-properties-common
                   add-apt-repository ppa:certbot/certbot -y
                   apt-get update
-                  apt-get install certbot -y
+                  apt-get install -y certbot
                   certbot certonly --standalone -n -m %EMAIL% --agree-tos -d $dns_name
 
-                  wget https://repo.continuum.io/archive/Anaconda2-2019.07-Linux-x86_64.sh
-                  bash Anaconda2-2019.07-Linux-x86_64.sh -b -f -p /anaconda3
-                  rm Anaconda2-2019.07-Linux-x86_64.sh
+                  wget https://repo.continuum.io/archive/Anaconda3-2019.07-Linux-x86_64.sh
+                  bash Anaconda3-2019.07-Linux-x86_64.sh -b -f -p /anaconda3
+                  rm Anaconda3-2019.07-Linux-x86_64.sh
                   echo 'export PATH="/anaconda3/bin:$PATH"' >> ~/.bashrc
                   source ~/.bashrc
                   conda update conda -y
