@@ -115,7 +115,7 @@ resources:
             write_files:
               - content: |
                   #!/bin/bash -v
-                  sleep 60
+                  sleep 120
                   if [[ -f /usr/local/bin/enableAutoUpdate ]]; then
                   /usr/local/bin/enableAutoUpdate
                   fi
