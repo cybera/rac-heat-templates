@@ -173,7 +173,7 @@ resources:
                   Group=root
 
                   [Install]
-                  WantedBy=multi-user.target%
+                  WantedBy=multi-user.target
                   EOF
 
                   systemctl daemon-reload
