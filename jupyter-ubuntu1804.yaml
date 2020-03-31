@@ -155,7 +155,7 @@ resources:
                   /anaconda3/bin/jupyter-notebook --generate-config
                   ntbk_sha="$(/anaconda3/bin/python -c "import IPython;print(IPython.lib.passwd('%PASSWORD%'))")"
                   echo "c.NotebookApp.password = u'${ntbk_sha}'" >> ~/.jupyter/jupyter_notebook_config.py
-                  echo "c.NotebookApp.ip = '::'" >> ~/.jupyter/jupyter_notebook_config.py
+                  echo "c.NotebookApp.ip = '*'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.open_browser = False" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.certfile = '/etc/letsencrypt/live/${dns_name}/fullchain.pem'" >> ~/.jupyter/jupyter_notebook_config.py
                   echo "c.NotebookApp.keyfile = '/etc/letsencrypt/live/${dns_name}/privkey.pem'" >> ~/.jupyter/jupyter_notebook_config.py
